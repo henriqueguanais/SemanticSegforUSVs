@@ -11,6 +11,8 @@ This paper proposes methodology for identifying and circumventing obstacles duri
 - [image-segmentation-keras](https://github.com/divamgupta/image-segmentation-keras)
 - imageio>=2.5.0
 - imgaug>=0.4.0 (only to create new data augmentation workflow)
+- albumentations
+- python=3.6.x - 3.8.x
 
 
 ### Datasets
