@@ -2,3 +2,9 @@ MODD/
 MaSTr1325_dataset/
 MaSTr1325_dataset_aug/
 Tensorboard_Logs/
+results/
+results2/
+results3/
+output_video.avi
+output_video1.avi
+output_video2.avi
