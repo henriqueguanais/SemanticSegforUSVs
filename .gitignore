@@ -1,8 +1,0 @@
-MODD/
-MaSTr1325_dataset/
-MaSTr1325_dataset_aug/
-Tensorboard_Logs/
-MODD2_video_data_rectified/
-MODD2_GPS_data/
-.gitignore
-__pycache__/
