@@ -11,3 +11,4 @@ output_video2.avi
 MODD2_video_data_rectified/
 MODD2_GPS_data/
 .gitignore
+__pycache__/

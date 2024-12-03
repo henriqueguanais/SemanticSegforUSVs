@@ -1,146 +1,132 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from gps_mark import gps_mark, angle_object
 
-stereo_method_file = "stereo-method.yaml"
+class DistanceMeter():
+    """Classe que faz o mapa de disparidade de uma imagem estereo."""
+    def __init__(self, focal_length, baseline) -> None:
+        self.focal_length = focal_length
+        self.baseline = baseline
+    
 
-# Carregar o arquivo de parâmetros estéreo com o OpenCV
-cv_file = cv2.FileStorage(stereo_method_file, cv2.FILE_STORAGE_READ)
-if not cv_file.isOpened():
-    print("Erro: Não foi possível abrir o arquivo de parâmetros estéreo.")
-else:
-    # Extrair os parâmetros do método estéreo
-    PreFilterType = int(cv_file.getNode("PreFilterType").real())
-    PreFilterSize = int(cv_file.getNode("PreFilterSize").real())
-    PreFilterCap = int(cv_file.getNode("PreFilterCap").real())
-    SADWindowSize = int(cv_file.getNode("SADWindowSize").real())
-    MinDisparity = int(cv_file.getNode("MinDisparity").real())
-    NumDisparities = int(cv_file.getNode("NumDisparities").real())
-    TextureThreshold = int(cv_file.getNode("TextureThreshold").real())
-    UniquenessRatio = int(cv_file.getNode("UniquenessRatio").real())
-    SpeckleWindowSize = int(cv_file.getNode("SpeckleWindowSize").real())
-    SpeckleRange = int(cv_file.getNode("SpeckleRange").real())
-    Disp12MaxDiff = int(cv_file.getNode("Disp12MaxDiff").real())
-    cv_file.release()
+    def load_stereo_params(self, stereo_method_file):
+        '''Carrega os parâmetros do método estéreo'''
+        cv_file = cv2.FileStorage(stereo_method_file, cv2.FILE_STORAGE_READ)
+        if not cv_file.isOpened():
+            print("Erro: Não foi possível abrir o arquivo de parâmetros estéreo.")
+        else:
+            # Extrair os parâmetros do método estéreo
+            PreFilterType = int(cv_file.getNode("PreFilterType").real())
+            PreFilterSize = int(cv_file.getNode("PreFilterSize").real())
+            PreFilterCap = int(cv_file.getNode("PreFilterCap").real())
+            SADWindowSize = int(cv_file.getNode("SADWindowSize").real())
+            MinDisparity = int(cv_file.getNode("MinDisparity").real())
+            NumDisparities = int(cv_file.getNode("NumDisparities").real())
+            TextureThreshold = int(cv_file.getNode("TextureThreshold").real())
+            UniquenessRatio = int(cv_file.getNode("UniquenessRatio").real())
+            SpeckleWindowSize = int(cv_file.getNode("SpeckleWindowSize").real())
+            SpeckleRange = int(cv_file.getNode("SpeckleRange").real())
+            Disp12MaxDiff = int(cv_file.getNode("Disp12MaxDiff").real())
+            cv_file.release()
 
-# Configurar StereoBM usando parâmetros carregados
-stereo = cv2.StereoBM_create(
-    numDisparities=NumDisparities,
-    blockSize=SADWindowSize
-)
+        # Configurar StereoBM usando parâmetros carregados
+        self.stereo = cv2.StereoBM_create(
+            numDisparities=NumDisparities,
+            blockSize=SADWindowSize
+        )
 
-stereo.setPreFilterType(PreFilterType)
-stereo.setPreFilterSize(PreFilterSize)
-stereo.setPreFilterCap(PreFilterCap)
-stereo.setTextureThreshold(TextureThreshold)
-stereo.setUniquenessRatio(UniquenessRatio)
-stereo.setSpeckleWindowSize(SpeckleWindowSize)
-stereo.setSpeckleRange(SpeckleRange)
-stereo.setDisp12MaxDiff(Disp12MaxDiff)
+        self.stereo.setPreFilterType(PreFilterType)
+        self.stereo.setPreFilterSize(PreFilterSize)
+        self.stereo.setPreFilterCap(PreFilterCap)
+        self.stereo.setTextureThreshold(TextureThreshold)
+        self.stereo.setUniquenessRatio(UniquenessRatio)
+        self.stereo.setSpeckleWindowSize(SpeckleWindowSize)
+        self.stereo.setSpeckleRange(SpeckleRange)
+        self.stereo.setDisp12MaxDiff(Disp12MaxDiff)
 
-# Leitura e pré-processamento das imagens (certifique-se de ajustar para o tamanho correto)
-imgL = cv2.imread("00022024L.jpg")
-imgR = cv2.imread("00022024R.jpg")
-imgL = cv2.cvtColor(imgL, cv2.COLOR_BGR2GRAY)
-imgR = cv2.cvtColor(imgR, cv2.COLOR_BGR2GRAY)
+        
+    def disparity_compute(self, imgL, imgR, object_position, bb_size):
+        '''Calcula a disparidade e a profundidade de um objeto na imagem'''
+        self.x = object_position[0]
+        self.y = object_position[1]
+        self.w = bb_size[0]
+        self.h = bb_size[1]
+        self.imgL = imgL
+        self.imgR = imgR
 
-# Calcular disparidade
+        # Calcular disparidade
+        self.disparity_map = self.stereo.compute(self.imgL, self.imgR).astype(np.float32)/16
+        disparity_normalize = cv2.normalize(src=self.disparity_map, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8UC1)
+        self.disparity_normalize = cv2.applyColorMap(disparity_normalize, cv2.COLORMAP_JET)
 
-disparity_map = stereo.compute(imgL, imgR).astype(np.float32)/16
-disparity_normalize = cv2.normalize(src=disparity_map, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8UC1)
-disparity_normalize = cv2.applyColorMap(disparity_normalize, cv2.COLORMAP_JET)
+        # Extrair o valor médio de disparidade da região
+        region_disparity = self.disparity_map[self.x:self.x+self.h, self.y:self.y+self.w]
+        mean_disparity = np.mean(region_disparity)
 
-focal_length = 957.795  # em pixels
-baseline = 0.3564      # em metros
+        # Calcular a profundidade usando a média da disparidade
+        if mean_disparity > 0:  # Evitar divisão por zero
+            self.depth = (self.focal_length * self.baseline) / mean_disparity
+            print(f"Distância estimada na região ({self.x}, {self.y}) é: {self.depth:.2f} metros")
+        else:
+            print("Disparidade insuficiente para calcular a distância.")
 
-# Definir uma região específica (x, y, largura, altura) no mapa de disparidade
-x, y, w, h = 517, 320, 200, 100  # Ajuste conforme a região desejada
+        disparity_max = np.max(self.disparity_map)
+        disparity_min = np.min(self.disparity_map[self.disparity_map > 0])  # ignora valores zero ou negativos'
 
-# Extrair o valor médio de disparidade da região
-region_disparity = disparity_map[x:x+w, y:y+h]
-mean_disparity = np.mean(region_disparity)
+        # Calcular profundidade mínima e máxima
+        if disparity_min > 0:  # Verifica se há valores válidos de disparidade
+            self.depth_min = (self.focal_length * self.baseline) / disparity_max
+            self.depth_max = (self.focal_length * self.baseline) / disparity_min
+            print(f"Profundidade mínima: {self.depth_min:.2f} m")
+            print(f"Profundidade máxima: {self.depth_max:.2f} m")
+        else:
+            print("Erro: disparidade insuficiente para calcular profundidade.")
 
-# Calcular a profundidade usando a média da disparidade
-if mean_disparity > 0:  # Evitar divisão por zero
-    depth = (focal_length * baseline) / mean_disparity
-    print(f"Distância estimada na região ({x}, {y}) é: {depth:.2f} metros")
-else:
-    print("Disparidade insuficiente para calcular a distância.")
+        self.min_disparity_mask = (self.disparity_map == disparity_min)
+        self.max_disparity_mask = (self.disparity_map == disparity_max)
 
-disparity_max = np.max(disparity_map)
-disparity_min = np.min(disparity_map[disparity_map > 0])  # ignora valores zero ou negativos'
+        return self.depth
 
-# Calcular profundidade mínima e máxima
-if disparity_min > 0:  # Verifica se há valores válidos de disparidade
-    depth_min = (focal_length * baseline) / disparity_max
-    depth_max = (focal_length * baseline) / disparity_min
-    print(f"Profundidade mínima: {depth_min:.2f} m")
-    print(f"Profundidade máxima: {depth_max:.2f} m")
-else:
-    print("Erro: disparidade insuficiente para calcular profundidade.")
+    def plot_results(self, plot_extreme_points=False):
+        """Plota os resultados do depth map"""
+        if plot_extreme_points:
+            # plota os pontos de maximo e minimo disparidade
+            for y in range(self.disparity_map.shape[0]):
+                for x in range(self.disparity_map.shape[1]):
+                    if self.min_disparity_mask[y, x]:
+                        # pontos de minima disparidade (maxima distancia), com cor preta
+                        cv2.circle(self.disparity_normalize, (x, y), radius=5, color=(0, 0, 0), thickness=-1)
+            for y in range(self.disparity_map.shape[0]):
+                for x in range(self.disparity_map.shape[1]):
+                    if self.max_disparity_mask[y, x]:
+                        # pontos de maxima disparidade (minima distancia), com cor branca
+                        cv2.circle(self.disparity_normalize, (x, y), radius=5, color=(255, 255, 255), thickness=-1)
 
-min_disparity_mask = (disparity_map == disparity_min)
-max_disparity_mask = (disparity_map == disparity_max)
+        cv2.rectangle(self.imgL, (self.x, self.y), (self.x+self.w, self.y+self.h), (0, 0, 255), 3)
+        cv2.rectangle(self.imgR, (self.x, self.y), (self.x+self.w, self.y+self.h), (0, 0, 255), 3)
+        cv2.rectangle(self.disparity_normalize, (self.x, self.y), (self.x+self.w, self.y+self.h), (255, 255, 255), 3)
 
-cv2.rectangle(imgL, (x, y), (x+h, y+w), (0, 0, 255), 3)
-cv2.rectangle(imgR, (x, y), (x+h, y+w), (0, 0, 255), 3)
-cv2.rectangle(disparity_normalize, (x, y), (x+h, y+w), (255, 255, 255), 3)
-for y in range(disparity_map.shape[0]):
-    for x in range(disparity_map.shape[1]):
-        if min_disparity_mask[y, x]:
-            cv2.circle(disparity_normalize, (x, y), radius=5, color=(0, 0, 0), thickness=-1)
+        plt.figure(figsize=(16, 10))
+        plt.subplot(131)
+        plt.imshow(cv2.cvtColor(self.imgL, cv2.COLOR_BGR2RGB))
+        plt.title("Imagem Esquerda (L)")
+        plt.axis('off')
 
-for y in range(disparity_map.shape[0]):
-    for x in range(disparity_map.shape[1]):
-        if max_disparity_mask[y, x]:
-            cv2.circle(disparity_normalize, (x, y), radius=5, color=(255, 255, 255), thickness=-1)
+        plt.subplot(132)
+        plt.imshow(self.imgR, cmap='gray')
+        plt.title("Imagem Direita (R)")
+        plt.axis('off')
 
-x, y, w, h = 517, 320, 100, 200
-gps_path = 'MODD2_GPS_data/gps/kope75-00-00021500-00022160/gps/00022024.txt'
-imu_path = 'MODD2_video_data_rectified/video_data/kope75-00-00021500-00022160/imu/00022024.txt'
-magnetic_declination = 3.14
-center_x = x + h/2
-center_y = y + w/2
-print(center_x, center_y)
-angle_o = angle_object(center_x, center_y, depth, imgL)
+        plt.subplot(133)
+        plt.imshow((cv2.cvtColor(self.disparity_normalize, cv2.COLOR_BGR2RGB)))
+        plt.title("Mapa de Disparidade")
+        plt.text(10, 1000, f"Distância estimada na região é: {self.depth:.2f} metros", fontsize=12, color='blue')
+        plt.text(10, 1100, f"Profundidade mínima: {self.depth_min:.2f} m", fontsize=12, color='blue')
+        plt.text(10, 1200, f"Profundidade máxima: {self.depth_max:.2f} m", fontsize=12, color='blue')
+        plt.text(1, 1300, f"Centro do objeto: {self.x + (self.h)/2, self.y + (self.w)/2}", fontsize=12, color='blue')
+        plt.axis('off')
+        plt.show()
 
-latitude, longitude, old_latitude, old_longitude = gps_mark(gps_path, imu_path, depth, magnetic_declination, angle_o)
-print(old_latitude, old_longitude)
-print(latitude, longitude)
-
-# Exibir as imagens com o Matplotlib
-plt.figure(figsize=(16, 10))
-plt.subplot(131)
-plt.imshow(cv2.cvtColor(imgL, cv2.COLOR_BGR2RGB))
-plt.title("Imagem Esquerda (L)")
-# plt.text(10, 1200, f"Distância estimada na região é: {depth:.2f} metros", fontsize=12, color='blue')
-# plt.text(10, 1300, f"Profundidade mínima: {depth_min:.2f} m", fontsize=12, color='blue')
-# plt.text(10, 1400, f"Profundidade máxima: {depth_max:.2f} m", fontsize=12, color='blue')
-plt.text(1, 1000, f"Centro do objeto: {center_x, center_y}", fontsize=12, color='blue')
-plt.axis('off')
-
-# plt.subplot(132)
-# plt.imshow(imgR, cmap='gray')
-# plt.title("Imagem Direita (R)")
-# plt.axis('off')
-
-gps_img = cv2.imread("gps2.png")
-# plt.subplot(133)
-plt.subplot(132)
-plt.imshow((cv2.cvtColor(disparity_normalize, cv2.COLOR_BGR2RGB)))
-plt.title("Mapa de Disparidade")
-plt.text(10, 1000, f"Distância estimada na região é: {depth:.2f} metros", fontsize=12, color='blue')
-plt.text(10, 1100, f"Profundidade mínima: {depth_min:.2f} m", fontsize=12, color='blue')
-plt.text(10, 1200, f"Profundidade máxima: {depth_max:.2f} m", fontsize=12, color='blue')
-plt.axis('off')
-
-plt.subplot(133)
-plt.imshow((cv2.cvtColor(gps_img, cv2.COLOR_BGR2RGB)))
-plt.title("GPS mark")
-plt.text(1, 400, f"COORDENADAS ATUAIS - {old_latitude}, {old_longitude}", fontsize=12, color='blue')
-plt.text(1, 450, f"COORDENADAS OBJETO - {latitude}, {longitude}", fontsize=12, color='blue')
-plt.axis('off')
-plt.show()
+        
 
 
