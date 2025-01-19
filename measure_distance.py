@@ -60,25 +60,25 @@ class DistanceMeter():
             Disp12MaxDiff = int(cv_file.getNode("Disp12MaxDiff").real())
             cv_file.release()
 
-        # Configurar StereoBM usando parâmetros carregados
-        stereo = cv2.StereoBM_create(
+        # Configurar StereoSGBM usando parâmetros carregados
+        stereo = cv2.StereoSGBM_create(
+            minDisparity=MinDisparity,
             numDisparities=NumDisparities,
             blockSize=SADWindowSize,
+            P1=8  * SADWindowSize**2,  # Normalmente 8*NúmeroDeCanais*SADWindowSize^2
+            P2=32 * SADWindowSize**2,  # Normalmente 32*NúmeroDeCanais*SADWindowSize^2
+            disp12MaxDiff=Disp12MaxDiff,
+            uniquenessRatio=UniquenessRatio,
+            speckleWindowSize=SpeckleWindowSize,
+            speckleRange=SpeckleRange,
+            preFilterCap=PreFilterCap,
+            mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
         )
-
-        stereo.setPreFilterType(PreFilterType)
-        stereo.setPreFilterSize(PreFilterSize)
-        stereo.setPreFilterCap(PreFilterCap)
-        stereo.setTextureThreshold(TextureThreshold)
-        stereo.setUniquenessRatio(UniquenessRatio)
-        stereo.setSpeckleWindowSize(SpeckleWindowSize)
-        stereo.setSpeckleRange(SpeckleRange)
-        stereo.setDisp12MaxDiff(Disp12MaxDiff)
 
         self.stereo = stereo
 
         
-    def disparity_compute(self, imgL:np.ndarray, imgR:np.ndarray, object_position:tuple, bb_size:tuple) -> None:
+    def disparity_compute(self, imgL:np.ndarray, imgR:np.ndarray, initial_position:tuple, final_position:tuple) -> None:
         '''
         Calcula a disparidade e a profundidade de um objeto na imagem.
 
@@ -88,15 +88,15 @@ class DistanceMeter():
             Imagem esquerda
         imgR: np.ndarray
             Imagem direita
-        object_position: tuple
-            Posição do objeto na imagem (x, y)
-        bb_size: tuple
-            Tamanho da bounding box do objeto (w, h)
+        initial_position: tuple
+            Posição inicial do objeto na imagem (x1, y1)
+        final_position: tuple
+            Posição final do objeto na imagem (x2, y2)
         '''
-        self.x = object_position[0]
-        self.y = object_position[1]
-        self.w = bb_size[0]
-        self.h = bb_size[1]
+        self.x1 = initial_position[0]
+        self.y1 = initial_position[1]
+        self.x2 = final_position[0]
+        self.y2 = final_position[1]
         self.imgL = imgL
         self.imgR = imgR
 
@@ -106,13 +106,13 @@ class DistanceMeter():
         self.disparity_normalize = cv2.applyColorMap(disparity_normalize, cv2.COLORMAP_JET)
 
         # Extrair o valor médio de disparidade da região
-        region_disparity = self.disparity_map[self.y:self.y+self.h, self.x:self.x+self.w]
+        region_disparity = self.disparity_map[self.y1:self.y2, self.x1:self.x2]
         mean_disparity = np.mean(region_disparity)
 
         # Calcular a profundidade usando a média da disparidade
         if mean_disparity > 0:  # Evitar divisão por zero
             self.depth = (self.focal_length * self.baseline) / mean_disparity
-            print(f"Distância estimada na região ({self.x}:{self.w + self.x}, {self.y}:{self.h + self.y}) é: {self.depth:.2f} metros")
+            print(f"Distância estimada na região ({self.x1}:{self.x2}, {self.y1}:{self.y2}) é: {self.depth:.2f} metros")
         else:
             print("Disparidade insuficiente para calcular a distância.")
 
@@ -158,9 +158,9 @@ class DistanceMeter():
         imgL_plot = np.copy(self.imgL)
         imgR_plot = np.copy(self.imgR)
 
-        cv2.rectangle(imgL_plot, (self.x, self.y), (self.x+self.w, self.y+self.h), (0, 0, 255), 3)
-        cv2.rectangle(imgR_plot, (self.x, self.y), (self.x+self.w, self.y+self.h), (0, 0, 255), 3)
-        cv2.rectangle(disparity_plot, (self.x, self.y), (self.x+self.w, self.y+self.h), (255, 255, 255), 3)
+        cv2.rectangle(imgL_plot, (self.x1, self.y1), (self.x2, self.y2), (0, 0, 255), 3)
+        cv2.rectangle(imgR_plot, (self.x1, self.y1), (self.x2, self.y2), (0, 0, 255), 3)
+        cv2.rectangle(disparity_plot, (self.x1, self.y1), (self.x2, self.y2), (255, 255, 255), 3)
 
         plt.figure(figsize=(16, 10))
         plt.subplot(131)
@@ -179,7 +179,7 @@ class DistanceMeter():
         plt.text(10, 1000, f"Distância estimada na região é: {self.depth:.2f} metros", fontsize=12, color='blue')
         plt.text(10, 1100, f"Profundidade mínima: {self.depth_min:.2f} m", fontsize=12, color='blue')
         plt.text(10, 1200, f"Profundidade máxima: {self.depth_max:.2f} m", fontsize=12, color='blue')
-        plt.text(1, 1300, f"Centro do objeto: {int(self.x + (self.w)/2), int(self.y + (self.h)/2)}", fontsize=12, color='blue')
+        plt.text(1, 1300, f"Centro do objeto: {int(self.x1 + (self.x2 - self.x1)/2), int(self.y1 + (self.y2 - self.y1)/2)}", fontsize=12, color='blue')
         plt.axis('off')
         plt.show()
 
